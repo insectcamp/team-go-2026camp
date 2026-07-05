@@ -4,7 +4,7 @@ require 'db.php';
 $action = $_GET['action'] ?? '';
 
 // ==========================================
-// 1. 獲取「小隊」當前或下一關的任務
+// 1. 獲取「小隊」當前及下一個任務 (LIMIT 2)
 // ==========================================
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'get_schedule') {
     $squad_id = $_GET['squad_id'] ?? '';
@@ -16,13 +16,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'get_schedule') {
         JOIN stations st ON s.station_id = st.id
         WHERE s.squad_id = ? AND s.end_time >= ?
         ORDER BY s.start_time ASC
-        LIMIT 1
+        LIMIT 2
     ");
     $stmt->execute(["第" . $squad_id . "小隊", $current_time]);
-    $task = $stmt->fetch(PDO::FETCH_ASSOC);
+    $tasks = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
-    if ($task) {
-        echo json_encode(['status' => 'success', 'data' => $task]);
+    if (count($tasks) > 0) {
+        $response = [
+            'current' => $tasks[0],
+            'next' => isset($tasks[1]) ? $tasks[1] : null // 如果有下一關就帶入，沒有就回傳 null
+        ];
+        echo json_encode(['status' => 'success', 'data' => $response]);
     } else {
         echo json_encode(['status' => 'empty', 'message' => '目前無任務或已過營業時間']);
     }
@@ -30,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'get_schedule') {
 }
 
 // ==========================================
-// 2. 獲取「關主」目前應接待的小隊
+// 2. 獲取「關主」目前及下一隊接待資訊 (LIMIT 2)
 // ==========================================
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'get_station_schedule') {
     $station_id = $_GET['station_id'] ?? '';
@@ -41,13 +45,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'get_station_schedule') 
         FROM schedules
         WHERE station_id = ? AND end_time >= ?
         ORDER BY start_time ASC
-        LIMIT 1
+        LIMIT 2
     ");
     $stmt->execute([$station_id, $current_time]);
-    $task = $stmt->fetch(PDO::FETCH_ASSOC);
+    $tasks = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
-    if ($task) {
-        echo json_encode(['status' => 'success', 'data' => $task]);
+    if (count($tasks) > 0) {
+        $response = [
+            'current' => $tasks[0],
+            'next' => isset($tasks[1]) ? $tasks[1] : null
+        ];
+        echo json_encode(['status' => 'success', 'data' => $response]);
     } else {
         echo json_encode(['status' => 'empty', 'message' => '目前無接待任務']);
     }
@@ -65,12 +73,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action === 'notify') {
     exit;
 }
 
-
 // ==========================================
 // 4. 輪詢端點：獲取最新通知 (完全取代之前的 SSE)
 // ==========================================
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'get_notifications') {
-    // 【關鍵修復】告訴瀏覽器絕對不要快取這個請求，每次都要去資料庫重抓
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     header('Pragma: no-cache');
 
