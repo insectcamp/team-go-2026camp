@@ -154,6 +154,19 @@ $squads = range(1, 8);
                         const currentTask = result.data.current;
                         const nextTask = result.data.next;
                         
+                        // 判斷是否有經緯度座標，動態產生 Google Maps 步行導航按鈕
+                        let navHtml = '';
+                        if (currentTask.lat && currentTask.lng) {
+                            const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${currentTask.lat},${currentTask.lng}&travelmode=walking`;
+                            navHtml = `
+                                <div class="mt-3">
+                                    <a href="${googleMapsUrl}" target="_blank" class="inline-flex items-center justify-center w-full bg-blue-600 text-white text-sm font-bold px-4 py-2.5 rounded-lg shadow-md hover:bg-blue-700 transition">
+                                        📍 開啟 Google Maps 步行導航
+                                    </a>
+                                </div>
+                            `;
+                        }
+                        
                         // 渲染當前任務
                         currentBox.innerHTML = `
                             <div class="flex items-center gap-2 mb-1">
@@ -164,6 +177,7 @@ $squads = range(1, 8);
                                 <span class="bg-gray-200 text-gray-700 text-xs px-2 py-1 rounded font-bold">時段</span>
                                 <span class="text-gray-700">${currentTask.start_time.substring(11,16)} ~ ${currentTask.end_time.substring(11,16)}</span>
                             </div>
+                            ${navHtml}
                         `;
                         
                         // 渲染下一個任務預告
@@ -177,13 +191,21 @@ $squads = range(1, 8);
                             nextBox.innerHTML = `<span class="text-gray-500">🏁 這是您今天的最後一關囉！</span>`;
                         }
                         
-                        // 更新地圖
+                        // 更新 Leaflet 地圖與圖釘 (圖釘彈出泡泡框也加上導航連結)
                         if (currentTask.lat && currentTask.lng) {
                             const latLng = [parseFloat(currentTask.lat), parseFloat(currentTask.lng)];
+                            const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${currentTask.lat},${currentTask.lng}&travelmode=walking`;
+                            
                             map.setView(latLng, 18);
                             if (marker) map.removeLayer(marker);
+                            
                             marker = L.marker(latLng).addTo(map)
-                                .bindPopup(`<b class="text-blue-600">${currentTask.name}</b>`).openPopup();
+                                .bindPopup(`
+                                    <div class="text-center p-1">
+                                        <b class="text-blue-600 block mb-2 text-sm">${currentTask.name}</b>
+                                        <a href="${googleMapsUrl}" target="_blank" class="inline-block text-xs text-white bg-blue-500 px-3 py-1.5 rounded font-bold no-underline shadow-sm">前往導航</a>
+                                    </div>
+                                `).openPopup();
                         }
                     } else {
                         currentBox.innerHTML = `<span class="text-red-500 font-medium">${result.message}</span>`;
@@ -291,7 +313,7 @@ $squads = range(1, 8);
             }
         }
 
-        // 背景自動更新排程機制 (稍微放寬秒數，減少伺服器壓力)
+        // 背景自動更新排程機制
         setInterval(getDeviceTime, 1000);
         setInterval(pollNotifications, 10000); // 10秒檢查一次推播
         setInterval(fetchSchedule, 30000);     // 30秒更新一次排程
