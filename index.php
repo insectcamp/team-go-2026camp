@@ -25,19 +25,16 @@ $squads = range(1, 8);
         
         <select id="role-selector" class="w-full p-2 border border-gray-300 rounded-lg mb-4 bg-gray-50 text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" onchange="switchView(this.value, this.options[this.selectedIndex].text)">
             <option value="">請選擇您的身份...</option>
-            
             <optgroup label="🏕️ 小隊輔">
                 <?php foreach($squads as $s): ?>
                     <option value="squad_<?= $s ?>">第<?= $s ?>小隊</option>
                 <?php endforeach; ?>
             </optgroup>
-            
             <optgroup label="🎯 關主">
                 <?php foreach($stations as $st): ?>
                     <option value="station_<?= $st['id'] ?>"><?= htmlspecialchars($st['name']) ?></option>
                 <?php endforeach; ?>
             </optgroup>
-            
             <optgroup label="📡 總部">
                 <option value="coordinator_0">場控總部</option>
             </optgroup>
@@ -49,7 +46,9 @@ $squads = range(1, 8);
                 <span id="squad-clock" class="text-xs font-mono bg-blue-800 px-2 py-1 rounded">--:--:--</span>
             </div>
             <div class="border border-blue-200 border-t-0 rounded-b-lg p-3 mb-4 bg-blue-50">
-                <p class="text-base text-gray-700 leading-relaxed" id="squad-next-station">任務讀取中...</p>
+                <div id="squad-current-station">任務讀取中...</div>
+                <hr class="my-3 border-blue-200">
+                <div id="squad-next-station" class="text-sm bg-white p-2 rounded border border-blue-100 shadow-sm text-gray-600">下一個任務：讀取中...</div>
             </div>
             
             <div id="map" class="h-64 w-full bg-gray-200 rounded-lg shadow-sm border border-gray-300 mb-4 z-0"></div>
@@ -62,7 +61,9 @@ $squads = range(1, 8);
                 <span id="station-clock" class="text-xs font-mono bg-green-800 px-2 py-1 rounded">--:--:--</span>
             </div>
             <div class="border border-green-200 border-t-0 rounded-b-lg p-4 mb-4 bg-green-50 text-center">
-                <p class="text-lg font-medium text-green-800" id="station-incoming">任務讀取中...</p>
+                <div id="station-incoming">任務讀取中...</div>
+                <hr class="my-3 border-green-200">
+                <div id="station-next-incoming" class="text-sm bg-white p-2 rounded border border-green-100 shadow-sm text-gray-600">下一隊：讀取中...</div>
             </div>
             
             <button onclick="notifyDelay()" class="w-full bg-yellow-500 text-white p-3 rounded-lg font-bold shadow hover:bg-yellow-600 transition flex justify-center items-center gap-2">
@@ -87,7 +88,7 @@ $squads = range(1, 8);
         let currentTargetSquad = '全體'; 
         let lastNotificationId = 0; 
 
-        // ================= 取得手機精準時間 (格式化) =================
+        // ================= 取得手機精準時間 =================
         function getDeviceTime() {
             const now = new Date();
             const y = now.getFullYear();
@@ -97,7 +98,6 @@ $squads = range(1, 8);
             const min = String(now.getMinutes()).padStart(2, '0');
             const s = String(now.getSeconds()).padStart(2, '0');
             
-            // 更新畫面的時鐘顯示
             if(document.getElementById('squad-clock')) document.getElementById('squad-clock').innerText = `${h}:${min}:${s}`;
             if(document.getElementById('station-clock')) document.getElementById('station-clock').innerText = `${h}:${min}:${s}`;
             
@@ -120,7 +120,6 @@ $squads = range(1, 8);
 
             if (type === 'squad') {
                 document.getElementById('squad-title').innerText = roleText;
-                
                 if (!map) {
                     setTimeout(() => {
                         map = L.map('map').setView([25.017, 121.539], 16); 
@@ -141,57 +140,89 @@ $squads = range(1, 8);
         // ================= 獲取正式行程 API =================
         async function fetchSchedule() {
             if (currentIdentity.type === 'coordinator' || !currentIdentity.type) return;
-            
-            // 每次發送請求前，獲取手機當下時間
             const deviceTime = getDeviceTime();
 
             try {
                 if (currentIdentity.type === 'squad') {
-                    // 將手機時間附加在網址參數後方傳給後端
-                    const response = await fetch(`api.php?action=get_schedule&squad_id=${currentIdentity.id}&time=${deviceTime}`);
+                    const response = await fetch(`api.php?action=get_schedule&squad_id=${currentIdentity.id}&time=${encodeURIComponent(deviceTime)}`);
                     const result = await response.json();
-                    const infoBox = document.getElementById('squad-next-station');
+                    
+                    const currentBox = document.getElementById('squad-current-station');
+                    const nextBox = document.getElementById('squad-next-station');
                     
                     if (result.status === 'success') {
-                        const task = result.data;
-                        infoBox.innerHTML = `
+                        const currentTask = result.data.current;
+                        const nextTask = result.data.next;
+                        
+                        // 渲染當前任務
+                        currentBox.innerHTML = `
                             <div class="flex items-center gap-2 mb-1">
                                 <span class="bg-blue-200 text-blue-800 text-xs px-2 py-1 rounded font-bold">目前任務</span>
-                                <span class="font-bold text-gray-900">${task.name}</span>
+                                <span class="font-bold text-gray-900 text-lg">${currentTask.name}</span>
                             </div>
                             <div class="flex items-center gap-2">
                                 <span class="bg-gray-200 text-gray-700 text-xs px-2 py-1 rounded font-bold">時段</span>
-                                <span class="text-gray-700">${task.start_time.substring(11,16)} ~ ${task.end_time.substring(11,16)}</span>
+                                <span class="text-gray-700">${currentTask.start_time.substring(11,16)} ~ ${currentTask.end_time.substring(11,16)}</span>
                             </div>
                         `;
                         
-                        if (task.lat && task.lng) {
-                            const latLng = [parseFloat(task.lat), parseFloat(task.lng)];
+                        // 渲染下一個任務預告
+                        if (nextTask) {
+                            nextBox.innerHTML = `
+                                <span class="font-bold text-blue-700">🔜 下一站：</span>
+                                <span class="text-gray-800 font-medium">${nextTask.name}</span>
+                                <span class="text-xs text-gray-500 ml-1">(${nextTask.start_time.substring(11,16)} 開始)</span>
+                            `;
+                        } else {
+                            nextBox.innerHTML = `<span class="text-gray-500">🏁 這是您今天的最後一關囉！</span>`;
+                        }
+                        
+                        // 更新地圖
+                        if (currentTask.lat && currentTask.lng) {
+                            const latLng = [parseFloat(currentTask.lat), parseFloat(currentTask.lng)];
                             map.setView(latLng, 18);
                             if (marker) map.removeLayer(marker);
                             marker = L.marker(latLng).addTo(map)
-                                .bindPopup(`<b class="text-blue-600">${task.name}</b>`).openPopup();
+                                .bindPopup(`<b class="text-blue-600">${currentTask.name}</b>`).openPopup();
                         }
                     } else {
-                        infoBox.innerHTML = `<span class="text-red-500 font-medium">${result.message}</span>`;
+                        currentBox.innerHTML = `<span class="text-red-500 font-medium">${result.message}</span>`;
+                        nextBox.innerHTML = `<span class="text-gray-400">目前無後續任務</span>`;
                         if (marker) { map.removeLayer(marker); marker = null; }
                     }
                 } 
                 else if (currentIdentity.type === 'station') {
-                    const response = await fetch(`api.php?action=get_station_schedule&station_id=${currentIdentity.id}&time=${deviceTime}`);
+                    const response = await fetch(`api.php?action=get_station_schedule&station_id=${currentIdentity.id}&time=${encodeURIComponent(deviceTime)}`);
                     const result = await response.json();
-                    const incomingBox = document.getElementById('station-incoming');
+                    
+                    const currentBox = document.getElementById('station-incoming');
+                    const nextBox = document.getElementById('station-next-incoming');
                     
                     if (result.status === 'success') {
-                        const task = result.data;
-                        currentTargetSquad = task.squad_id; 
-                        incomingBox.innerHTML = `
-                            目前接待：<span class="font-bold text-green-700 text-xl">${task.squad_id}</span><br>
-                            <span class="text-sm text-gray-500">${task.start_time.substring(11,16)} ~ ${task.end_time.substring(11,16)}</span>
+                        const currentTask = result.data.current;
+                        const nextTask = result.data.next;
+                        currentTargetSquad = currentTask.squad_id; 
+                        
+                        // 渲染目前接待
+                        currentBox.innerHTML = `
+                            目前接待：<span class="font-bold text-green-700 text-2xl">${currentTask.squad_id}</span><br>
+                            <span class="text-sm text-gray-500">${currentTask.start_time.substring(11,16)} ~ ${currentTask.end_time.substring(11,16)}</span>
                         `;
+                        
+                        // 渲染下一隊預告
+                        if (nextTask) {
+                            nextBox.innerHTML = `
+                                <span class="font-bold text-green-800">🔜 稍後抵達：</span>
+                                <span class="text-gray-800 font-medium">${nextTask.squad_id}</span>
+                                <span class="text-xs text-gray-500 ml-1">(${nextTask.start_time.substring(11,16)} 開始)</span>
+                            `;
+                        } else {
+                            nextBox.innerHTML = `<span class="text-gray-500">🏁 稍後沒有其他小隊要來囉！</span>`;
+                        }
                     } else {
                         currentTargetSquad = '全體';
-                        incomingBox.innerHTML = `<span class="text-gray-500">${result.message}</span>`;
+                        currentBox.innerHTML = `<span class="text-gray-500">${result.message}</span>`;
+                        nextBox.innerHTML = `<span class="text-gray-400">目前無後續任務</span>`;
                     }
                 }
             } catch (error) {
@@ -202,7 +233,6 @@ $squads = range(1, 8);
         // ================= 發送 Delay 推播 =================
         async function notifyDelay() {
             if(currentIdentity.type !== 'station') return;
-            
             try {
                 const response = await fetch('api.php?action=notify', {
                     method: 'POST',
@@ -214,8 +244,6 @@ $squads = range(1, 8);
                     })
                 });
                 const result = await response.json();
-                
-                // 【關鍵修復】確實收到伺服器成功回應才跳通知
                 if(result.status === 'success') {
                     alert(`已成功發送 Delay 通知給 ${currentTargetSquad} 與場控總部！`);
                 } else {
@@ -226,12 +254,10 @@ $squads = range(1, 8);
             }
         }
 
-        // ================= 輪詢 (Polling) 接收即時通知 =================
+        // ================= 輪詢接收即時通知 =================
         async function pollNotifications() {
             if (!currentIdentity.type) return; 
-
             try {
-                // 【關鍵修復】在網址後面加上隨機時間戳 &t=...，徹底防堵瀏覽器快取
                 const noCacheUrl = `api.php?action=get_notifications&last_id=${lastNotificationId}&t=${new Date().getTime()}`;
                 const response = await fetch(noCacheUrl);
                 const result = await response.json();
@@ -242,9 +268,7 @@ $squads = range(1, 8);
                         
                         if (currentIdentity.type === 'coordinator') {
                             const logList = document.getElementById('global-logs');
-                            if (logList.innerHTML.includes('等待系統通知')) {
-                                logList.innerHTML = '';
-                            }
+                            if (logList.innerHTML.includes('等待系統通知')) { logList.innerHTML = ''; }
                             const newLog = `
                                 <li class="p-2 bg-white border-l-4 border-red-500 shadow-sm rounded mb-2">
                                     <div class="text-xs text-gray-500 mb-1">${data.created_at}</div>
@@ -254,7 +278,6 @@ $squads = range(1, 8);
                         }
                         
                         if (currentIdentity.type === 'squad') {
-                            // 判斷推播對象是不是自己這隊，或是全體廣播
                             if (data.target_squad === currentIdentity.name || data.target_squad === '全體') {
                                 const alertBox = document.getElementById('squad-notifications');
                                 alertBox.innerText = `🚨 ${data.sender} 通知：${data.message}`;
@@ -267,13 +290,11 @@ $squads = range(1, 8);
                 console.warn("通知同步延遲，將於下次重試。");
             }
         }
-        // ================= 背景自動更新排程機制 =================
-        // 更新時鐘顯示，每 1 秒跑一次
+
+        // 背景自動更新排程機制 (稍微放寬秒數，減少伺服器壓力)
         setInterval(getDeviceTime, 1000);
-        // 推播每 5 秒同步一次
-        setInterval(pollNotifications, 5000);
-        // 行程表每 15 秒同步一次 (縮短秒數讓換關更即時)
-        setInterval(fetchSchedule, 15000);
+        setInterval(pollNotifications, 10000); // 10秒檢查一次推播
+        setInterval(fetchSchedule, 30000);     // 30秒更新一次排程
     </script>
 </body>
 </html>
